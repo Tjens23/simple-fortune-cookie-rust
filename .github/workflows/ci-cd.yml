@@ -28,6 +28,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+        components: rustfmt, clippy
 
     - name: Cache cargo dependencies
       uses: actions/cache@v3
@@ -38,7 +39,10 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('{0}/Cargo.lock', matrix.component)) }}
+        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('./{0}/Cargo.toml', matrix.component)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.component }}-
+          ${{ runner.os }}-cargo-
 
     - name: Run tests for ${{ matrix.component }}
       working-directory: ./${{ matrix.component }}
@@ -46,11 +50,11 @@ jobs:
 
     - name: Check code formatting
       working-directory: ./${{ matrix.component }}
-      run: cargo fmt --check
+      run: cargo fmt --all -- --check
 
     - name: Run clippy
       working-directory: ./${{ matrix.component }}
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --all-targets --all-features -- -D warnings
 
   build:
     name: Build Application
@@ -78,7 +82,10 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('{0}/Cargo.lock', matrix.component)) }}
+        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('./{0}/Cargo.toml', matrix.component)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.component }}-
+          ${{ runner.os }}-cargo-
 
     - name: Build ${{ matrix.component }}
       working-directory: ./${{ matrix.component }}

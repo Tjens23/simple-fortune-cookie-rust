@@ -34,12 +34,15 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-pr-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-pr-${{ hashFiles('**/Cargo.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-pr-
+          ${{ runner.os }}-cargo-
 
     - name: Check code formatting
       run: |
-        cd frontend && cargo fmt --check
-        cd ../backend && cargo fmt --check
+        cd frontend && cargo fmt --all -- --check
+        cd ../backend && cargo fmt --all -- --check
 
     - name: Run clippy linting
       run: |
