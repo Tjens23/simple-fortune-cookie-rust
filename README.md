@@ -1,3 +1,4 @@
+this the correct repo?
 # Simple Fortune Cookie
 
 A project in Go for you to apply all the awesome things
