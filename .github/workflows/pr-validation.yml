@@ -1,0 +1,117 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-pr:
+    name: Validate Pull Request
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-pr-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Check code formatting
+      run: |
+        cd frontend && cargo fmt --check
+        cd ../backend && cargo fmt --check
+
+    - name: Run clippy linting
+      run: |
+        cd frontend && cargo clippy --all-targets --all-features -- -D warnings
+        cd ../backend && cargo clippy --all-targets --all-features -- -D warnings
+
+    - name: Run all tests
+      run: |
+        cd frontend && cargo test --verbose
+        cd ../backend && cargo test --verbose
+
+    - name: Build applications
+      run: |
+        cd frontend && cargo build --release
+        cd ../backend && cargo build --release
+
+    - name: Validate Docker builds
+      run: |
+        docker build -t test-frontend ./frontend
+        docker build -t test-backend ./backend
+        echo "Docker builds completed successfully"
+
+    - name: Test docker-compose configuration
+      run: |
+        # Validate docker-compose syntax
+        docker-compose config
+        echo "Docker Compose configuration is valid"
+
+    - name: Comment PR Status
+      uses: actions/github-script@v6
+      if: always()
+      with:
+        script: |
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('🤖 PR Validation Results')
+          );
+          
+          const status = '${{ job.status }}';
+          const conclusion = status === 'success' ? '✅ All checks passed!' : '❌ Some checks failed!';
+          
+          const body = `🤖 PR Validation Results
+          
+          ${conclusion}
+          
+          **Status**: ${status}
+          **Workflow**: ${{ github.workflow }}
+          **Run**: ${{ github.run_number }}
+          
+          ${status === 'success' ? 
+            '🎉 This PR is ready for review! All tests pass and code quality checks are satisfied.' : 
+            '⚠️ Please fix the failing checks before this PR can be merged.'
+          }`;
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }
