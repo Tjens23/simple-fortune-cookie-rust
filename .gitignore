@@ -1,5 +1,8 @@
 # backend binary
 backend/backend
+# .idea/ backend
+backend/.idea/
 
 # frontend binary
 frontend/frontend
+frontend/.idea/
