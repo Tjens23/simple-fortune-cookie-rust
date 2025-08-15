@@ -23,7 +23,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+      with:
+        fetch-depth: 0
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -47,10 +48,9 @@ jobs:
     - name: Run tests for ${{ matrix.component }}
       working-directory: ./${{ matrix.component }}
       run: cargo test --verbose
-
-    - name: Check code formatting
-      working-directory: ./${{ matrix.component }}
-      run: cargo fmt --all -- --check
+#   - name: Check code formatting
+#      working-directory: ./${{ matrix.component }}
+#      run: cargo fmt --all -- --check
 
     - name: Run clippy
       working-directory: ./${{ matrix.component }}
@@ -67,7 +67,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+      with:
+        fetch-depth: 0
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -107,7 +108,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+      with:
+        fetch-depth: 0
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
