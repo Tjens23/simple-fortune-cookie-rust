@@ -125,8 +125,9 @@ async fn add_handler(new_fortune: NewFortune) -> Result<impl Reply, Infallible> 
         ).into_response()),
         Err(e) => {
             eprintln!("Request failed: {}", e);
+            let error_msg = format!("Request failed: {}", e);
             Ok(warp::reply::with_status(
-                format!("Request failed: {}", e),
+                error_msg,
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
             ).into_response())
         }
@@ -139,12 +140,12 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
             "Not Found",
             warp::http::StatusCode::NOT_FOUND,
         ))
-    } else if let Some(_) = err.find::<warp::filters::body::BodyDeserializeError>() {
+    } else if err.find::<warp::reject::MethodNotAllowed>().is_some(){
         Ok(warp::reply::with_status(
             "Invalid JSON",
             warp::http::StatusCode::BAD_REQUEST,
         ))
-    } else if let Some(_) = err.find::<warp::reject::MethodNotAllowed>() {
+    } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
         Ok(warp::reply::with_status(
             "Method Not Allowed",
             warp::http::StatusCode::METHOD_NOT_ALLOWED,

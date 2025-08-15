@@ -1,0 +1,179 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  REGISTRY: ghcr.io
+  IMAGE_NAME_FRONTEND: ${{ github.repository }}/fortune-frontend
+  IMAGE_NAME_BACKEND: ${{ github.repository }}/fortune-backend
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [frontend, backend]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('./{0}/Cargo.toml', matrix.component)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.component }}-
+          ${{ runner.os }}-cargo-
+
+    - name: Run tests for ${{ matrix.component }}
+      working-directory: ./${{ matrix.component }}
+      run: cargo test --verbose
+#   - name: Check code formatting
+#      working-directory: ./${{ matrix.component }}
+#      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      working-directory: ./${{ matrix.component }}
+      run: cargo clippy --all-targets --all-features -- -D warnings
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        component: [frontend, backend]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ matrix.component }}-${{ hashFiles(format('./{0}/Cargo.toml', matrix.component)) }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ matrix.component }}-
+          ${{ runner.os }}-cargo-
+
+    - name: Build ${{ matrix.component }}
+      working-directory: ./${{ matrix.component }}
+      run: cargo build --release --verbose
+
+  docker-build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        component: [frontend, backend]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/fortune-${{ matrix.component }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.component }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: docker-build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Update docker-compose for deployment
+      run: |
+        # Update docker-compose to use the newly built images
+        sed -i "s|build:|# build:|g" docker-compose.yml
+        sed -i "s|context: ./backend|# context: ./backend|g" docker-compose.yml
+        sed -i "s|context: ./frontend|# context: ./frontend|g" docker-compose.yml
+        sed -i "s|dockerfile: Dockerfile|# dockerfile: Dockerfile|g" docker-compose.yml
+        
+        # Add image references
+        sed -i "/container_name: fortune-backend/i\\    image: ${{ env.REGISTRY }}/${{ github.repository }}/fortune-backend:latest" docker-compose.yml
+        sed -i "/container_name: fortune-frontend/i\\    image: ${{ env.REGISTRY }}/${{ github.repository }}/fortune-frontend:latest" docker-compose.yml
+
+    - name: Deploy with docker-compose
+      run: |
+        # Pull the latest images
+        docker-compose pull
+        # Stop and remove existing containers
+        docker-compose down
+        # Start the application with new images
+        docker-compose up -d
+        # Wait for services to be ready
+        sleep 30
+        # Check if services are running
+        docker-compose ps
+        # Test the application
+        curl -f http://localhost:8080/healthz || exit 1

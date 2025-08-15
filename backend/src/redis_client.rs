@@ -1,13 +1,14 @@
 use redis::{Client, RedisResult};
 use crate::{Fortune, FortuneStore};
+use std::sync::OnceLock;
 
-static mut REDIS_CLIENT: Option<Client> = None;
-static mut USING_REDIS: bool = false;
+static REDIS_CLIENT: OnceLock<Option<Client>> = OnceLock::new();
 
 pub async fn init() {
     let redis_dns = std::env::var("REDIS_DNS");
     if redis_dns.is_err() {
         println!("redis config not set");
+        REDIS_CLIENT.set(None).unwrap();
         return;
     }
 
@@ -18,10 +19,7 @@ pub async fn init() {
             Ok(client) => {
                 match client.get_connection() {
                     Ok(_) => {
-                        unsafe {
-                            REDIS_CLIENT = Some(client);
-                            USING_REDIS = true;
-                        }
+                        REDIS_CLIENT.set(Some(client)).unwrap();
                         println!("Successfully connected to Redis");
                         return;
                     }
@@ -38,16 +36,11 @@ pub async fn init() {
     }
 
     eprintln!("Failed to connect to redis after 5 attempts");
+    REDIS_CLIENT.set(None).unwrap();
 }
 
 pub async fn get_client() -> Option<Client> {
-    unsafe {
-        if USING_REDIS {
-            REDIS_CLIENT.as_ref().cloned()
-        } else {
-            None
-        }
-    }
+    REDIS_CLIENT.get().and_then(|opt| opt.as_ref().cloned())
 }
 
 pub async fn load_fortunes(client: &Client, store: FortuneStore) {
